@@ -1,0 +1,1372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Automated CQ Uploading</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@500;600;700;800&family=Anton&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.5/dist/docx-preview.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js"></script>
+<style>
+/* Layout: floating glass nav, a stage-lit hero, a 3-step tracker, then the working column
+   (upload → review the question images → send to CMS360). Dark, 10 Minute School style. */
+:root {
+  color-scheme: dark;
+  --bg: #000000;
+  --bg-2: #0d0d0d;
+  --surface: #111111;
+  --surface-2: #1c1c1c;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-2: rgba(255, 255, 255, 0.16);
+  --ink: #ffffff;
+  --muted: rgba(255, 255, 255, 0.64);
+  --dim: rgba(255, 255, 255, 0.42);
+  --red: #ff2121;
+  --red-2: #d9005a;
+  --red-soft: rgba(255, 33, 33, 0.12);
+  --red-glow: rgba(255, 28, 28, 0.45);
+  --mark: #ff5a5a;
+  --mark-soft: rgba(255, 60, 60, 0.12);
+  --warn: #ffa600;
+  --warn-soft: rgba(255, 166, 0, 0.10);
+  --ok: #3ddc84;
+  --ok-soft: rgba(61, 220, 132, 0.10);
+  --accent: var(--red);
+  --accent-soft: var(--red-soft);
+  --grad: linear-gradient(95deg, #ff2121 0%, rgba(217, 0, 90, 0.92) 100%);
+  --font-display: "Anek Bangla", "Geist", "Nirmala UI", system-ui, sans-serif;
+  --font-body: "Geist", "Anek Bangla", "Segoe UI", system-ui, sans-serif;
+  --font-num: "Anton", "Geist", Impact, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, Consolas, monospace;
+  --font-bangla: "Anek Bangla", "Noto Sans Bengali", "Nirmala UI", sans-serif;
+  --r-lg: 28px;
+  --r-md: 16px;
+  --r-sm: 10px;
+}
+.wrap, .wrap *, dialog, dialog *, .nav, .nav * { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  background-image:
+    radial-gradient(900px 420px at 50% -120px, rgba(255, 33, 33, 0.22), transparent 70%),
+    radial-gradient(600px 300px at 85% 10%, rgba(217, 0, 90, 0.10), transparent 70%);
+  background-repeat: no-repeat;
+  min-height: 100%;
+}
+::selection { background: rgba(255, 33, 33, 0.45); color: #fff; }
+
+/* ---------- Floating nav ---------- */
+.nav {
+  position: sticky; top: calc(12px + env(safe-area-inset-top, 0px)); z-index: 20;
+  width: min(760px, calc(100% - 32px)); margin: 12px auto 0;
+  display: flex; align-items: center; gap: 6px; justify-content: space-between;
+  padding: 7px 8px 7px 16px; border-radius: 999px;
+  background: rgba(17, 17, 17, 0.72); border: 1px solid var(--line);
+  backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.brand { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--ink); flex: none; }
+.brand-logo { display: block; height: 26px; width: auto; }
+.brand-mark { font: 800 22px/1 var(--font-body); letter-spacing: -0.06em; display: flex; align-items: center; }
+.brand-mark i { width: 13px; height: 13px; border-radius: 50%; border: 3px solid var(--red); margin-left: 1px; display: inline-block; }
+.brand-word { font: 600 9.5px/1.05 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; }
+.nav-links { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; min-width: 0; }
+.nav-links a {
+  color: var(--muted); text-decoration: none; font: 500 13.5px var(--font-body); padding: 7px 12px; border-radius: 999px;
+  transition: color .2s, background .2s;
+}
+.nav-links a:hover { color: var(--ink); background: rgba(255, 255, 255, 0.06); }
+.nav-links a.active { color: var(--ink); background: rgba(255, 255, 255, 0.10); }
+.nav-links a:focus-visible, .brand:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+.nav-status { display: flex; align-items: center; gap: 7px; font: 500 12px var(--font-body); color: var(--dim); padding: 6px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.04); flex: none; white-space: nowrap; }
+.nav-status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+.nav-status.ok .dot { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+.nav-status.bad .dot { background: var(--mark); box-shadow: 0 0 10px var(--mark); }
+.nav-progress { position: absolute; left: 18px; right: 18px; bottom: -1px; height: 2px; border-radius: 2px; overflow: hidden; pointer-events: none; }
+.nav-progress span { display: block; height: 100%; width: 0; background: var(--grad); box-shadow: 0 0 12px var(--red-glow); transition: width .3s ease; }
+@media (max-width: 640px) { .nav-links { display: none; } }
+
+/* ---------- Page ---------- */
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 40px; display: grid; gap: 24px; }
+.hero { text-align: center; display: grid; gap: 12px; justify-items: center; padding-block: 28px 8px; }
+.eyebrow { font: 600 13px var(--font-body); letter-spacing: 0.02em; color: var(--red); }
+h1 {
+  font-family: var(--font-display); font-weight: 800; font-size: clamp(34px, 6vw, 64px); line-height: 1.12; margin: 0;
+  letter-spacing: -0.01em; text-wrap: balance; max-width: 16ch;
+}
+h1 .nowrap { white-space: nowrap; display: inline-block; }
+h1 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+h2 { font-family: var(--font-display); font-size: 24px; font-weight: 700; margin: 0; text-wrap: balance; letter-spacing: -0.005em; }
+.lede { color: var(--muted); margin: 0; max-width: 62ch; font-size: 16px; }
+.lede code, .hint code {
+  font-family: var(--font-mono); font-size: 12.5px; background: var(--red-soft); color: #ff8a8a;
+  padding: 1px 7px; border-radius: 6px; border: 1px solid rgba(255, 33, 33, 0.25);
+}
+
+/* ---------- Step tracker ---------- */
+.tracker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.step {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r-md);
+  background: var(--surface); border: 1px solid var(--line); min-width: 0; text-decoration: none; color: inherit;
+  transition: border-color .25s, background .25s, transform .2s;
+}
+.step:hover { transform: translateY(-1px); border-color: var(--line-2); }
+.step-num { font: 400 22px/1 var(--font-num); color: var(--dim); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--bg-2); border: 1px solid var(--line); flex: none; transition: all .25s; }
+.step-text { min-width: 0; display: grid; }
+.step-text b { font: 600 14px var(--font-body); }
+.step-text span { font-size: 12.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step.active { border-color: rgba(255, 33, 33, 0.45); background: linear-gradient(180deg, rgba(255, 33, 33, 0.10), rgba(17, 17, 17, 1)); }
+.step.active .step-num { color: #fff; background: var(--grad); border-color: transparent; box-shadow: 0 0 18px var(--red-glow); }
+.step.done .step-num { color: var(--ok); border-color: rgba(61, 220, 132, 0.4); background: var(--ok-soft); font-size: 0; }
+.step.done .step-num::before { content: "✓"; font: 700 16px var(--font-body); }
+@media (max-width: 720px) { .tracker { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- Drop zone ---------- */
+.drop {
+  position: relative; border: 1.5px dashed var(--line-2); border-radius: var(--r-lg); background: var(--surface);
+  padding: 30px 26px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+  cursor: pointer; transition: border-color .25s, background .25s, transform .25s, box-shadow .25s; overflow: hidden;
+}
+.drop::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: radial-gradient(500px 160px at 50% 120%, rgba(255, 33, 33, 0.22), transparent 70%); transition: opacity .3s;
+}
+.drop:hover, .drop.over { border-color: rgba(255, 33, 33, 0.6); background: #141414; }
+.drop:hover::after, .drop.over::after { opacity: 1; }
+.drop.over { transform: scale(1.01); box-shadow: 0 0 0 6px rgba(255, 33, 33, 0.10), 0 0 40px rgba(255, 33, 33, 0.18); }
+.drop:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
+.drop-icon { width: 58px; height: 58px; border-radius: 18px; display: grid; place-items: center; background: var(--grad); color: #fff; flex: none; box-shadow: 0 8px 30px var(--red-glow); transition: transform .3s; }
+.drop:hover .drop-icon, .drop.over .drop-icon { transform: translateY(-3px) rotate(-4deg); }
+.drop-text { flex: 1 1 260px; min-width: 0; display: grid; gap: 4px; position: relative; z-index: 1; }
+.drop-text strong { font-family: var(--font-display); font-size: 21px; font-weight: 700; }
+.drop-text span { color: var(--muted); font-size: 14px; }
+.file-name { font-family: var(--font-mono); font-size: 15px; color: #ff8a8a; overflow-wrap: anywhere; }
+#file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  position: relative; overflow: hidden; font: 600 14px var(--font-body); border-radius: 999px; padding: 11px 20px; cursor: pointer;
+  border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink);
+  transition: transform .15s, border-color .2s, background .2s, box-shadow .25s, filter .2s; z-index: 1;
+}
+.btn:hover { border-color: rgba(255, 255, 255, 0.32); background: #242424; transform: translateY(-1px); }
+.btn:active { transform: translateY(0) scale(.98); }
+.btn:focus-visible, input:focus-visible, select:focus-visible, .tab:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+.btn.primary {
+  background: var(--grad); border-color: rgba(255, 120, 120, 0.35); color: #fff;
+  box-shadow: 0 3px 15px 2px rgba(0, 0, 0, 0.25), 0 2px 40px rgba(255, 28, 28, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.btn.primary::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; transform: translateX(-120%);
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%); transition: transform .6s;
+}
+.btn.primary:hover { filter: brightness(1.08); box-shadow: 0 3px 15px 2px rgba(0, 0, 0, 0.25), 0 2px 56px rgba(255, 28, 28, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+.btn.primary:hover::before { transform: translateX(120%); }
+.btn-lg { font-size: 17px; padding: 16px 34px; display: inline-flex; align-items: center; gap: 10px; flex: none; }
+.btn-lg svg { flex: none; }
+.drop:hover .btn-lg { filter: brightness(1.08); box-shadow: 0 3px 15px 2px rgba(0, 0, 0, 0.25), 0 2px 60px rgba(255, 28, 28, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+@media (max-width: 560px) { .btn-lg { width: 100%; justify-content: center; } }
+.btn:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.4); transform: none; box-shadow: none; }
+
+/* ---------- Notices ---------- */
+.notice { padding: 13px 16px; border-radius: var(--r-md); font-size: 14px; display: grid; gap: 6px; }
+.notice.error { border: 1px solid rgba(255, 90, 90, 0.45); background: var(--mark-soft); color: #ffd2d2; }
+.notice.warn { border: 1px solid rgba(255, 166, 0, 0.4); background: var(--warn-soft); color: #ffe2ad; }
+.notice.warn strong { color: var(--warn); }
+.notice ul { margin: 0; padding-left: 20px; display: grid; gap: 2px; }
+
+/* ---------- Tabs ---------- */
+.tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); justify-self: start; flex-wrap: wrap; }
+.tab {
+  font: 600 14px var(--font-body); color: var(--muted); background: none; border: 0; cursor: pointer;
+  padding: 9px 16px; border-radius: 999px; display: flex; gap: 8px; align-items: center; transition: color .2s, background .2s;
+}
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: #fff; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-2); }
+.tab .count { font: 400 13px/1 var(--font-num); letter-spacing: .03em; background: var(--red-soft); color: #ff8a8a; border-radius: 999px; padding: 4px 9px 3px; font-variant-numeric: tabular-nums; }
+
+/* ---------- Panels & fields ---------- */
+.controls {
+  display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: flex-end;
+  padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+}
+.field { display: grid; gap: 6px; }
+.field label, .label { font: 600 11px var(--font-body); text-transform: uppercase; letter-spacing: .1em; color: var(--dim); }
+.field input[type="text"], .field input[type="password"], .field input[type="number"], .field select {
+  font: 500 15px var(--font-body); color: var(--ink); background: var(--bg-2);
+  border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; width: 140px; transition: border-color .2s, box-shadow .2s;
+}
+.field input:hover, .field select:hover { border-color: rgba(255, 255, 255, 0.28); }
+.field input:focus, .field select:focus { border-color: rgba(255, 33, 33, 0.7); box-shadow: 0 0 0 4px rgba(255, 33, 33, 0.14); outline: none; }
+.field input[type="number"] { width: 92px; }
+.field select { width: auto; }
+.check { display: flex; gap: 10px; align-items: center; font-size: 14px; cursor: pointer; padding-bottom: 10px; color: var(--muted); }
+.check:hover { color: var(--ink); }
+.check input { accent-color: var(--red); width: 17px; height: 17px; }
+.preview-name { font-family: var(--font-mono); font-size: 12.5px; color: var(--dim); padding-bottom: 11px; }
+.preview-name b { color: var(--ink); font-weight: 500; }
+
+/* ---------- Stats ---------- */
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px 16px 12px; display: grid; gap: 2px; text-align: center; }
+.stat b { font: 400 40px/1.05 var(--font-num); letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.stat span { font: 600 10.5px var(--font-body); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+.stat.red b { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.stat.ok b { color: var(--ok); }
+@media (max-width: 720px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------- Results grid ---------- */
+.section-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; justify-content: space-between; }
+.section-head .eyebrow { display: block; margin-bottom: 4px; }
+.bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.summary { font-size: 14px; color: var(--muted); min-width: 0; }
+.summary b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.bar-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.tile {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden;
+  display: grid; grid-template-rows: auto 1fr; position: relative; min-width: 0;
+  transition: transform .25s ease, border-color .25s, box-shadow .25s;
+}
+.tile:hover { transform: translateY(-3px); border-color: rgba(255, 33, 33, 0.35); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 33, 33, 0.08); }
+.tile.enter { animation: rise .45s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
+.tile.off { border-color: rgba(255, 90, 90, 0.45); background: #160c0c; }
+.tile.off .thumb img { opacity: .25; filter: grayscale(1); }
+.thumb {
+  height: 150px; max-width: 100%; width: 100%; display: grid; place-items: center; padding: 14px;
+  background: radial-gradient(120% 90% at 50% 0%, #1b1b1b, #0b0b0b); border: 0; border-bottom: 1px solid var(--line); cursor: zoom-in; overflow: hidden;
+}
+.thumb.checker {
+  background-image: linear-gradient(45deg, #1a1a1a 25%, transparent 25%, transparent 75%, #1a1a1a 75%),
+                    linear-gradient(45deg, #1a1a1a 25%, transparent 25%, transparent 75%, #1a1a1a 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; background-color: #0e0e0e;
+}
+.thumb img { max-width: 100%; max-height: 122px; object-fit: contain; display: block; border-radius: 4px; box-shadow: 0 6px 20px rgba(0, 0, 0, .55); transition: transform .35s ease; }
+.tile:hover .thumb img { transform: scale(1.04); }
+.thumb .noprev { font-size: 13px; color: var(--muted); background: var(--surface-2); padding: 6px 10px; border-radius: 8px; }
+.thumb:disabled { cursor: default; }
+.meta { padding: 12px 14px 14px; display: grid; gap: 5px; min-width: 0; align-content: start; }
+.qname { font: 400 22px/1.1 var(--font-num); letter-spacing: .02em; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.qname .ext { font: 400 12px var(--font-mono); letter-spacing: 0; color: var(--dim); }
+.tile.off .qname { color: var(--mark); }
+.src { font-family: var(--font-mono); font-size: 11.5px; color: var(--dim); overflow-wrap: anywhere; }
+.src.bad { color: var(--mark); }
+.tile-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.mini {
+  font: 500 12px var(--font-body); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink); cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+.mini:hover { border-color: rgba(255, 33, 33, 0.55); background: #241515; }
+.mini:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+.spinner { width: 26px; height: 26px; border: 3px solid rgba(255, 255, 255, 0.12); border-top-color: var(--red); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- How-to ---------- */
+.howto { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); padding: 26px; display: grid; gap: 18px; }
+.howto-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 760px) { .howto-grid { grid-template-columns: minmax(0, 1fr); } }
+.steps { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; counter-reset: s; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; font-size: 14px; color: var(--muted); }
+.steps li::before { content: counter(s); font: 400 18px/1 var(--font-num); width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--red-soft); color: #ff8a8a; border: 1px solid rgba(255, 33, 33, 0.3); }
+.steps b { color: var(--ink); font-weight: 600; display: block; font-size: 15px; }
+.hint { font-size: 13px; color: var(--dim); margin: 0; }
+.sheet-wrap { display: grid; gap: 10px; }
+.sheet {
+  background: #ffffff; color: #111111; border-radius: 14px; padding: 18px 20px;
+  font-family: var(--font-bangla); font-size: 15px; line-height: 1.8; display: grid; gap: 2px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06); transform: rotate(-1deg);
+}
+.sheet .mk { font-family: var(--font-mono); font-size: 12.5px; color: #ffffff; background: #ff2121; border-radius: 6px; padding: 0 7px; justify-self: start; }
+.sheet .q { padding-left: 2px; }
+.sheet .gap { height: 8px; }
+.arrow { font-family: var(--font-mono); font-size: 13px; color: var(--dim); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.arrow span { padding: 4px 10px; border: 1px solid var(--line-2); border-radius: 999px; background: var(--surface-2); color: var(--ink); }
+
+/* ---------- Viewer ---------- */
+dialog#viewer {
+  border: 1px solid var(--line-2); border-radius: 20px; padding: 0; background: var(--surface); color: var(--ink);
+  width: min(1100px, calc(100vw - 32px)); max-height: calc(100vh - 48px); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+}
+dialog#viewer[open] { animation: pop .25s ease both; }
+@keyframes pop { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
+dialog#viewer::backdrop { background: rgba(0, 0, 0, .72); backdrop-filter: blur(4px); }
+.viewer-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface); flex-wrap: wrap; }
+.viewer-head strong { font: 400 22px var(--font-num); letter-spacing: .02em; }
+.viewer-head div { display: flex; gap: 8px; }
+.viewer-body { padding: 18px; background: var(--bg-2); overflow: auto; }
+.viewer-body img { display: block; margin: 0 auto; max-width: 100%; background: #fff; border-radius: 6px; box-shadow: 0 10px 40px rgba(0, 0, 0, .6); }
+
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  background: rgba(28, 28, 28, 0.92); color: #fff; padding: 11px 18px; border-radius: 999px; font-size: 14px; font-weight: 500;
+  border: 1px solid var(--line-2); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 30px rgba(255, 33, 33, 0.15);
+  max-width: calc(100% - 32px); z-index: 30; backdrop-filter: blur(10px); animation: toastIn .3s ease both;
+}
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* ---------- CMS360 panel ---------- */
+.cms {
+  border: 1px solid var(--line); border-radius: var(--r-lg); padding: 24px; display: grid; gap: 14px;
+  background: linear-gradient(180deg, rgba(255, 33, 33, 0.06), rgba(17, 17, 17, 0) 140px), var(--surface);
+}
+.cms-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cms-row { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; }
+.cms .field.grow { flex: 1 1 260px; min-width: 0; }
+.cms .field.grow input { width: 100%; }
+.pill { font: 500 12px var(--font-body); padding: 5px 12px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); border: 1px solid rgba(61, 220, 132, 0.3); justify-self: start; }
+.pill.bad { background: var(--mark-soft); color: var(--mark); border-color: rgba(255, 90, 90, 0.35); }
+.pill.neutral { background: var(--surface-2); color: var(--muted); border-color: var(--line-2); }
+.parent-info { font-size: 14px; padding: 12px 14px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line-2); overflow-wrap: anywhere; color: var(--muted); }
+.parent-info.bad { border-color: rgba(255, 90, 90, 0.45); background: var(--mark-soft); color: #ffd2d2; }
+.parent-info b { font-weight: 600; color: var(--ink); }
+.cms-msg { font-size: 14px; color: var(--muted); }
+.cms-msg.bad { color: var(--mark); }
+.confirm {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 16px;
+  border-radius: var(--r-md); border: 1px solid rgba(255, 33, 33, 0.45); background: var(--red-soft); font-size: 14px; animation: pop .2s ease both;
+}
+.marks-row { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); margin-top: 4px; }
+.marks-row input {
+  font: 400 18px/1 var(--font-num); letter-spacing: .02em; width: 68px; padding: 6px 10px; border: 1px solid var(--line-2); border-radius: 10px;
+  background: var(--bg-2); color: var(--ink); font-variant-numeric: tabular-nums; transition: border-color .2s, box-shadow .2s;
+}
+.marks-row input:focus { border-color: rgba(255, 33, 33, 0.7); box-shadow: 0 0 0 4px rgba(255, 33, 33, 0.14); outline: none; }
+.marks-note { font-size: 11.5px; font-weight: 500; color: var(--dim); }
+.marks-row.missing input { border-color: var(--mark); background: var(--mark-soft); animation: nudge 1.6s ease-in-out infinite; }
+.marks-row.missing .marks-note { color: var(--mark); font-weight: 600; }
+@keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 90, 90, 0); } 50% { box-shadow: 0 0 0 5px rgba(255, 90, 90, 0.18); } }
+.cms-link { font-size: 13px; font-weight: 600; color: #ff8a8a; text-decoration: none; justify-self: start; }
+.cms-link:hover { color: #fff; }
+.cms-link:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; border-radius: 3px; }
+.chip { font: 500 12px var(--font-body); justify-self: start; padding: 3px 10px; border-radius: 999px; overflow-wrap: anywhere; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line-2); }
+.chip.ok { color: var(--ok); background: var(--ok-soft); border-color: rgba(61, 220, 132, 0.35); }
+.chip.bad { color: var(--mark); background: var(--mark-soft); border-color: rgba(255, 90, 90, 0.35); border-radius: 10px; }
+.chip.busy { color: #ff8a8a; background: var(--red-soft); border-color: rgba(255, 33, 33, 0.35); }
+
+/* ---------- Footer ---------- */
+.site-foot { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 14px; font-size: 11.5px; letter-spacing: .01em; color: var(--dim); display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 0; text-align: center; }
+.site-foot > * + *::before { content: "·"; margin: 0 8px; opacity: .6; }
+.site-foot a { color: inherit; text-decoration: none; }
+.site-foot a:hover { color: #ff8a8a; }
+.site-foot a:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; border-radius: 3px; }
+
+/* Where the Word file is laid out before each question is captured. Kept on the page (not hidden) so it has real layout. */
+.render-area { position: fixed; left: -100000px; top: 0; pointer-events: none; }
+.render-area, .render-area section.docx { color: #000000; background: #ffffff; font-family: "Nirmala UI", "Noto Sans Bengali", "Vrinda", sans-serif; font-size: 11pt; line-height: normal; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+</style>
+
+<nav class="nav" aria-label="Sections">
+  <a class="brand" href="#top" aria-label="10 Minute School · Automated CQ Uploading">
+    <img class="brand-logo" src="data:image/png;base64,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" alt="10 Minute School" width="94" height="26">
+  </a>
+  <div class="nav-links">
+    <a href="#upload" data-step="1">Upload</a>
+    <a href="#send" data-step="3">CMS360</a>
+  </div>
+  <span class="nav-status" id="navStatus"><span class="dot"></span><span id="navStatusText">Not connected</span></span>
+  <div class="nav-progress" aria-hidden="true"><span id="navProgress"></span></div>
+</nav>
+
+<div class="wrap" id="top">
+  <header class="hero">
+    <span class="eyebrow">Automated CQ Uploading</span>
+    <h1>DOCX to <em>CMS360</em></h1>
+    <p class="lede">Type <code>Q1</code> above the first question in your Word file, <code>Q2</code> above the second, and so on. Each question, from its marker down to the next one, becomes its own image named Ques 1, Ques 2, Ques 3. Download them as a folder or send them straight to CMS360.</p>
+  </header>
+
+  <div class="tracker" role="list" aria-label="Progress">
+    <a class="step active" href="#upload" id="step1" role="listitem"><span class="step-num">1</span><span class="step-text"><b>Upload</b><span id="step1Sub">Your .docx with Q1, Q2… markers</span></span></a>
+    <a class="step" href="#review" id="step2" role="listitem"><span class="step-num">2</span><span class="step-text"><b>Review &amp; marks</b><span id="step2Sub">Check every image and its marks</span></span></a>
+    <a class="step" href="#send" id="step3" role="listitem"><span class="step-num">3</span><span class="step-text"><b>Send to CMS360</b><span id="step3Sub">Children with picture + m9 question</span></span></a>
+  </div>
+
+  <label class="drop" id="drop" tabindex="0" for="file">
+    <span id="upload" style="position:absolute; top:-90px" aria-hidden="true"></span>
+    <span class="drop-icon" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6"/><path d="m9 13 3-3 3 3"/></svg>
+    </span>
+    <div class="drop-text">
+      <strong id="dropTitle">Drop your .docx here, or click to choose</strong>
+      <span id="dropSub">Google Doc? Use File → Download → Microsoft Word (.docx) first. The file is read on this computer and never uploaded.</span>
+    </div>
+    <span class="btn primary btn-lg" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></svg>Choose file</span>
+  </label>
+  <input type="file" id="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+
+  <div id="error" class="notice error" hidden></div>
+  <div id="warnings" class="notice warn" hidden>
+    <strong>Check these markers</strong>
+    <ul id="warnList"></ul>
+  </div>
+
+  <div class="stats" id="stats" hidden>
+    <div class="stat red"><b id="statQ" data-n="0">0</b><span>Questions</span></div>
+    <div class="stat"><b id="statReady" data-n="0">0</b><span>Images ready</span></div>
+    <div class="stat"><b id="statMarks" data-n="0">0</b><span>Total marks</span></div>
+    <div class="stat ok"><b id="statSent" data-n="0">0</b><span>In CMS360</span></div>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="What to export">
+    <button class="tab" role="tab" id="tabQ" type="button" aria-selected="true">Questions <span class="count" id="countQ">0</span></button>
+    <button class="tab" role="tab" id="tabP" type="button" aria-selected="false">Pictures in the file <span class="count" id="countP">0</span></button>
+  </div>
+
+  <section class="controls" aria-label="Options">
+    <div class="field">
+      <label for="prefix">Name</label>
+      <input type="text" id="prefix" value="Ques" autocomplete="off">
+    </div>
+    <div class="field q-only">
+      <label for="scale">Sharpness</label>
+      <select id="scale">
+        <option value="1">Normal (1×)</option>
+        <option value="2" selected>Sharp (2×)</option>
+        <option value="3">Extra sharp (3×)</option>
+      </select>
+    </div>
+    <div class="field q-only">
+      <label for="margin">Margin (px)</label>
+      <input type="number" id="margin" value="24" min="0" max="200" step="4">
+    </div>
+    <div class="field p-only" hidden>
+      <label for="start">Start at</label>
+      <input type="number" id="start" value="1" min="0" step="1">
+    </div>
+    <label class="check p-only" hidden><input type="checkbox" id="dedupe" checked> Skip repeated pictures</label>
+    <label class="check p-only" hidden><input type="checkbox" id="tiny"> Skip tiny pictures (under 2 KB)</label>
+    <div class="preview-name" id="namePreview"></div>
+  </section>
+
+  <section id="howto" class="howto">
+    <div class="howto-grid">
+      <div style="display:grid; gap:16px; min-width:0">
+        <h2 id="howtoTitle">How to mark your questions</h2>
+        <ol class="steps">
+          <li><span><b>Type a marker above each question</b>On its own line: Q1 above question 1, Q2 above question 2, and so on. Enter or Shift+Enter both work.</span></li>
+          <li><span><b>No end line needed</b>Each question runs down to the next marker. The last one runs to the end of the file. If something follows it that you don't want, such as an answer key, type End on its own line after the last question.</span></li>
+          <li><span><b>Save as .docx and upload</b>Each question is captured as it looks in Word, including tables and pictures. The marker lines are left out.</span></li>
+        </ol>
+        <p class="hint">Also understood: <code>Q 1</code>, <code>Q-1</code>, <code>Q.1</code>, <code>Ques 1</code>, Bangla digits like <code>Q১</code>, and the older <code>Q 1 Starts</code> / <code>Q 1 Ends</code>. The number in the marker becomes the file number.</p>
+      </div>
+      <div class="sheet-wrap">
+        <span class="label">Example</span>
+        <div class="sheet" lang="bn">
+          <span class="mk">Q1</span>
+          <span class="q">১। নিচের শব্দগুলোর অর্থ লেখো: (১×৫ = ৫)</span>
+          <span class="q">দুর্গ, চামর, তিরন্দাজ, অদ্ভুত, স্বাধীন</span>
+          <span class="gap"></span>
+          <span class="mk">Q2</span>
+          <span class="q">২। শূন্যস্থান পূরণ করো: (১×৫ = ৫)</span>
+          <span class="q">ক. জলময় শৈবাল——টাকশাল।</span>
+          <span class="q">খ. দুখু কাঁদতে কাঁদতে——পিছু পিছু গেল।</span>
+        </div>
+        <div class="arrow">becomes <span>Ques 1.png</span><span>Ques 2.png</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="results" hidden>
+    <span id="review" style="position:relative; top:-90px; display:block" aria-hidden="true"></span>
+    <div class="section-head">
+      <div><span class="eyebrow">Step 2 · Review</span><h2>Question images</h2></div>
+      <div class="bar-actions">
+        <button class="btn" id="resetBtn" type="button">Include all</button>
+        <button class="btn primary" id="zipBtn" type="button">Download folder (.zip)</button>
+      </div>
+    </div>
+    <div class="summary" id="summary" style="margin-top:8px"></div>
+    <div class="grid" id="grid" style="margin-top:16px"></div>
+  </section>
+
+  <section id="cmsPanel" class="cms" aria-label="Upload to CMS360" hidden>
+    <span id="send" style="position:relative; top:-90px; display:block; height:0" aria-hidden="true"></span>
+    <div class="cms-head">
+      <div><span class="eyebrow">Step 3 · Send</span><h2>Upload to CMS360</h2></div>
+      <span class="pill" id="tokenInfo"></span>
+    </div>
+    <p class="hint">Each image becomes a child group question under the parent, with the image in its Paragraph. Children are added in question order: Ques 1 first, then Ques 2, and so on. Each child gets the marks in the Marks box under its image above. Marks are filled in from the bracket at the end of the question heading, like (১+১+৮ = ১০). If a question has none, its box is red and empty until you type them. You can change any of them.</p>
+    <div class="cms-row">
+      <div class="field grow">
+        <label for="tokenInput">CMS360 token</label>
+        <input type="password" id="tokenInput" placeholder="Paste a new token here" autocomplete="off" spellcheck="false">
+      </div>
+      <button class="btn" id="saveTokenBtn" type="button">Save token</button>
+    </div>
+    <p class="hint">To get it: open CMS360 in Chrome, press F12, go to Network, click any request to api.10minuteschool.com, and under Request Headers copy what comes after <code>authorization: Bearer</code>. Chrome replaces its token every 10–30 minutes, so paste a fresh one right before uploading. It's saved only on this computer, in secrets/.env.</p>
+    <div class="cms-row">
+      <div class="field grow">
+        <label for="parentInput">Parent ID or link</label>
+        <input type="text" id="parentInput" placeholder="3791, or paste the group-question-details link" autocomplete="off">
+      </div>
+      <button class="btn" id="checkParentBtn" type="button">Check parent</button>
+    </div>
+    <div class="parent-info" id="parentInfo" hidden></div>
+    <div class="cms-row">
+      <div class="field grow">
+        <label for="childTitle">Child title</label>
+        <input type="text" id="childTitle" value="{parent} - Q{n}" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="childStatus">Status</label>
+        <select id="childStatus"><option value="active" selected>Active</option><option value="inactive">Inactive (hidden under the parent)</option></select>
+      </div>
+    </div>
+    <p class="hint" id="titlePreview"></p>
+    <label class="check"><input type="checkbox" id="innerOn" checked> Also create a question inside each child (like “Add Question” in CMS360)</label>
+    <div class="cms-row" id="innerRow">
+      <div class="field">
+        <label>Question type</label>
+        <span class="pill neutral">m9 · Only Question Text</span>
+      </div>
+      <div class="field grow">
+        <label for="innerTitle">Question text</label>
+        <input type="text" id="innerTitle" value="প্রশ্নগুলোর উত্তর দাও" autocomplete="off" lang="bn">
+      </div>
+    </div>
+    <div class="notice warn" id="marksNeeded" hidden></div>
+    <div class="cms-row">
+      <button class="btn primary" id="cmsUploadBtn" type="button" disabled>Upload to CMS360</button>
+      <span class="cms-msg" id="cmsMsg"></span>
+    </div>
+    <div class="confirm" id="confirmBox" hidden>
+      <span id="confirmText"></span>
+      <div class="bar-actions">
+        <button class="btn primary" id="confirmYes" type="button">Yes, upload</button>
+        <button class="btn" id="confirmNo" type="button">Cancel</button>
+      </div>
+    </div>
+  </section>
+  <footer class="site-foot">
+    <span>10 Minute School © 2026</span>
+  </footer>
+</div>
+
+<dialog id="viewer">
+  <div class="viewer-head">
+    <strong id="viewerName"></strong>
+    <div><button class="mini" id="viewerDl" type="button">Download</button><button class="mini" id="viewerClose" type="button">Close</button></div>
+  </div>
+  <div class="viewer-body"><img id="viewerImg" alt=""></div>
+</dialog>
+<div class="toast" id="toast" hidden></div>
+<div class="render-area" aria-hidden="true"><div id="docStyles"></div><div id="docHost"></div><div id="stage"></div></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const PREVIEWABLE = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"]);
+const SAVEABLE = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+const MIME = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", svg: "image/svg+xml", emf: "image/emf", wmf: "image/wmf", tif: "image/tiff", tiff: "image/tiff" };
+// A line holding only "Q1", "Q 1", "Q-1", "Q.1", "Ques 1" or "Q১" (optionally "[Q1]", "Q1:", or the older "Q 1 Starts" / "Q 1 Ends").
+const MARKER = /^[\s\[\(\{<*#"'“”‘’]*(?:q|ques)\s*[-–.:#]?\s*([0-9০-৯]+)\s*[-–.:)]?\s*(starts?|begins?|ends?)?(?:\s+here)?[\s\]\)\}>*.:!"'“”‘’]*$/i;
+// A line holding only "End" (or "Q End", "শেষ") stops the last question early.
+const STOP = /^[\s\[\(\{<*#"'“”‘’]*(?:q\s*)?(?:end|ends|stop|শেষ)[\s\]\)\}>*.:!"'“”‘’]*$/i;
+
+let state = { docName: "", mode: "questions", questions: [], pictures: [], warnings: [], busy: false, progress: 0 };
+let renderToken = 0;
+let fontCSS = "";
+
+const downloadsReady = (window.claude && window.claude.use)
+  ? window.claude.use("downloads").catch(() => null)
+  : Promise.resolve(null);
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.hidden = true; }, 3200);
+}
+function showError(msg) { const e = $("error"); e.textContent = msg; e.hidden = !msg; }
+function kb(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(2) + " MB"; }
+function toNumber(s) { return parseInt(s.replace(/[০-৯]/g, (d) => String(d.charCodeAt(0) - 0x09E6)), 10); }
+function cleanName(s) { return s.replace(/[\\/:*?"<>|]/g, "").trim(); }
+function prefix() { return cleanName($("prefix").value) || "Ques"; }
+
+/* ---------- Questions: render the Word file, find markers, capture each range ---------- */
+
+async function layOutDocument(file) {
+  const host = $("docHost"), styles = $("docStyles");
+  host.textContent = ""; styles.textContent = "";
+  await docx.renderAsync(file, host, styles, {
+    className: "docx", inWrapper: false, ignoreHeight: true, breakPages: false,
+    renderHeaders: false, renderFooters: false, renderFootnotes: false, renderEndnotes: false,
+    useBase64URL: true,
+  });
+  if (document.fonts && document.fonts.ready) await document.fonts.ready;
+  const css = [...styles.querySelectorAll("style")].map((s) => s.textContent).join("\n");
+  fontCSS = (css.match(/@font-face\s*\{[^}]*\}/g) || []).join("\n");
+}
+
+function lineText(s) { return s.replace(/[​-‍﻿]/g, "").replace(/ /g, " ").trim(); }
+function isMarkerText(t) { return !!t && t.length <= 40 && (MARKER.test(t) || STOP.test(t)); }
+
+// A marker typed with Shift+Enter shares a paragraph with the question text.
+// Cut such paragraphs at the line breaks around the marker so the marker becomes its own paragraph.
+function splitMarkerLines() {
+  for (const p of [...$("docHost").querySelectorAll("p")]) {
+    const brs = [...p.querySelectorAll("br")];
+    if (!brs.length) continue;
+    const lineIsMarker = (from, to) => {
+      const r = document.createRange();
+      if (from) r.setStartAfter(from); else r.setStart(p, 0);
+      if (to) r.setEndBefore(to); else r.setEnd(p, p.childNodes.length);
+      return isMarkerText(lineText(r.toString()));
+    };
+    const cut = brs.map((br, i) => lineIsMarker(brs[i - 1] || null, br) || lineIsMarker(br, brs[i + 1] || null));
+    if (!cut.some(Boolean)) continue;
+    const pieces = [];
+    brs.forEach((br, i) => {
+      if (!cut[i]) return;
+      const r = document.createRange();
+      r.setStart(p, 0); r.setEndBefore(br);
+      const piece = p.cloneNode(false);
+      piece.append(r.extractContents());
+      p.before(piece); pieces.push(piece);
+      br.remove();
+    });
+    pieces.push(p);
+    // Keep a list number (if Word numbered this paragraph) only on the first piece that isn't a marker.
+    const numClasses = [...p.classList].filter((c) => /-num-/.test(c));
+    if (numClasses.length) {
+      pieces.forEach((el) => el.classList.remove(...numClasses));
+      const keeper = pieces.find((el) => !isMarkerText(lineText(el.textContent)) && lineText(el.textContent));
+      if (keeper) keeper.classList.add(...numClasses);
+    }
+  }
+}
+
+function findQuestions() {
+  // Each question runs from its marker to the next marker (or an End line, or the end of the file).
+  splitMarkerLines();
+  const warnings = [], found = [];
+  let current = null;
+  const close = (endEl) => { found.push({ n: current.n, start: current.start, end: endEl }); current = null; };
+  for (const p of $("docHost").querySelectorAll("p")) {
+    const text = lineText(p.textContent);
+    if (!isMarkerText(text)) continue;
+    const m = MARKER.exec(text);
+    const stop = !m;
+    p.setAttribute("data-qmarker", "");
+    if (stop || /^end/i.test(m[2] || "")) { if (current) close(p); continue; }
+    if (current) close(p);
+    current = { n: toNumber(m[1]), start: p };
+  }
+  if (current) close(null);
+
+  const numbers = new Set(found.map((q) => q.n));
+  if (numbers.size) {
+    const sorted = [...numbers].sort((a, b) => a - b), missing = [];
+    for (let i = sorted[0]; i <= sorted[sorted.length - 1] && missing.length <= 12; i++) if (!numbers.has(i)) missing.push(i);
+    if (missing.length) warnings.push(`No marker found for ${missing.slice(0, 12).map((n) => "Q" + n).join(", ")}${missing.length > 12 ? "…" : ""}. Check that none was skipped or mistyped.`);
+  }
+  const seen = new Map(), repeated = [];
+  const questions = found.map((q) => {
+    const copy = (seen.get(q.n) || 0) + 1; seen.set(q.n, copy);
+    if (copy === 2) repeated.push(q.n);
+    return { ...q, copy, blob: null, url: null, w: 0, h: 0, excluded: false, status: "waiting", marksDetected: null, marksEdited: null };
+  });
+  if (repeated.length) {
+    const list = repeated.length === 1 ? `Question ${repeated[0]} is` : `Questions ${repeated.join(", ")} are`;
+    warnings.push(`${list} marked more than once. Later copies are named like “${prefix()} ${repeated[0]} (2).png”.`);
+  }
+  return { questions, warnings };
+}
+
+function isBlank(el) {
+  if (el.nodeType === Node.TEXT_NODE) return !el.textContent.trim();
+  if (el.nodeType !== Node.ELEMENT_NODE) return true;
+  if (/^(img|svg|table|hr|canvas)$/i.test(el.tagName)) return false;
+  if (el.querySelector("img, svg, table, hr, canvas, image")) return false;
+  return !el.textContent.replace(/[\s ​]/g, "");
+}
+
+// Marks usually close the question heading: "১। কবিতা (১+১+৮ = ১০)" → 10, "(১×৫ = ৫)" → 5, "(৫)" → 5.
+function detectMarks(body) {
+  const lines = [...body.children].map((el) => lineText(el.textContent)).filter(Boolean).slice(0, 3);
+  for (const line of lines) {
+    const groups = [...line.matchAll(/[(\[]([^()\[\]]{1,40})[)\]]/g)].map((m) => m[1]).reverse();
+    for (const g of groups) {
+      const t = g.replace(/[০-৯]/g, (d) => String(d.charCodeAt(0) - 0x09E6));
+      const m = /=\s*(\d{1,3})\s*$/.exec(t) || /^\s*(\d{1,3})\s*$/.exec(t) || /(?:marks?|নম্বর|মান)\s*[:=-]?\s*(\d{1,3})/i.exec(t);
+      if (m) { const n = parseInt(m[1], 10); if (n > 0 && n <= 100) return n; }
+    }
+  }
+  return null;
+}
+
+async function captureQuestion(q, scale, margin) {
+  const range = document.createRange();
+  range.setStartAfter(q.start);
+  if (q.end) range.setEndBefore(q.end);
+  else {
+    const articles = $("docHost").querySelectorAll("section.docx > article");
+    const last = articles[articles.length - 1] || $("docHost");
+    range.setEnd(last, last.childNodes.length);
+  }
+  const frag = range.cloneContents();
+  frag.querySelectorAll("[data-qmarker]").forEach((el) => el.remove());
+
+  const section = q.start.closest("section.docx") || $("docHost").querySelector("section.docx");
+  const shell = section ? section.cloneNode(false) : document.createElement("section");
+  shell.classList.add("docx");
+  const s = section ? section.style : {};
+  if (s.width) shell.style.width = `calc(${s.width} - ${s.paddingLeft || "0px"} - ${s.paddingRight || "0px"} + ${margin * 2}px)`;
+  shell.style.minHeight = "0"; shell.style.height = "auto";
+  shell.style.padding = margin + "px";
+  shell.style.background = "#ffffff"; shell.style.boxShadow = "none"; shell.style.margin = "0";
+
+  const article = section && section.querySelector(":scope > article");
+  const body = article ? article.cloneNode(false) : document.createElement("article");
+  body.style.marginBottom = "0";
+  body.append(frag);
+  while (body.firstChild && isBlank(body.firstChild)) body.firstChild.remove();
+  while (body.lastChild && isBlank(body.lastChild)) body.lastChild.remove();
+  if (!body.childNodes.length) return null;
+  // Word's paragraph spacing above the first line and below the last one only adds blank space to the image.
+  if (body.firstElementChild) { body.firstElementChild.style.marginTop = "0"; body.firstElementChild.style.paddingTop = "0"; }
+  if (body.lastElementChild) { body.lastElementChild.style.marginBottom = "0"; body.lastElementChild.style.paddingBottom = "0"; }
+  shell.append(body);
+  $("stage").append(shell);
+  try {
+    const opts = { pixelRatio: scale, backgroundColor: "#ffffff", cacheBust: false };
+    if (fontCSS) opts.fontEmbedCSS = fontCSS; else opts.skipFonts = true;
+    const blob = await htmlToImage.toBlob(shell, opts);
+    if (!blob) throw new Error("capture failed");
+    return { blob, w: Math.round(shell.offsetWidth * scale), h: Math.round(shell.offsetHeight * scale), marks: detectMarks(body) };
+  } finally { shell.remove(); }
+}
+
+async function captureAll() {
+  const token = ++renderToken;
+  const scale = Number($("scale").value) || 2;
+  const margin = Math.max(0, Math.min(200, parseInt($("margin").value, 10) || 0));
+  state.busy = state.questions.length > 0; state.progress = 0;
+  state.questions.forEach((q) => { q.status = "waiting"; });
+  render();
+  for (let i = 0; i < state.questions.length; i++) {
+    if (token !== renderToken) return;
+    const q = state.questions[i];
+    state.progress = i;
+    q.status = "rendering"; renderSummary();
+    try {
+      const r = await captureQuestion(q, scale, margin);
+      if (token !== renderToken) return;
+      if (q.url) URL.revokeObjectURL(q.url);
+      if (r) { q.blob = r.blob; q.url = URL.createObjectURL(r.blob); q.w = r.w; q.h = r.h; q.marksDetected = r.marks; q.status = "done"; }
+      else { q.blob = null; q.url = null; q.status = "empty"; }
+    } catch (e) {
+      console.error(e);
+      if (token !== renderToken) return;
+      q.status = "failed";
+    }
+    render();
+  }
+  state.busy = false; render();
+}
+
+function questionName(q) { return `${prefix()} ${q.n}${q.copy > 1 ? ` (${q.copy})` : ""}.png`; }
+
+/* ---------- Pictures: pull the embedded images out of the .docx ---------- */
+
+function resolveTarget(target) {
+  if (target.startsWith("/")) return target.slice(1);
+  const out = [];
+  for (const p of ("word/" + target).split("/")) { if (p === "..") out.pop(); else if (p && p !== ".") out.push(p); }
+  return out.join("/");
+}
+
+async function readPictures(zip) {
+  const docXml = zip.file("word/document.xml"), relsXml = zip.file("word/_rels/document.xml.rels");
+  if (!docXml || !relsXml) throw new Error("This doesn't look like a Word document. Upload a .docx file.");
+  const rels = {};
+  for (const m of (await relsXml.async("string")).matchAll(/<Relationship\b[^>]*>/g)) {
+    const tag = m[0];
+    const id = /\bId="([^"]+)"/.exec(tag)?.[1], target = /\bTarget="([^"]+)"/.exec(tag)?.[1];
+    if (!id || !target || /TargetMode="External"/.test(tag) || !/\/image"/.test(tag)) continue;
+    rels[id] = resolveTarget(target);
+  }
+  // Drop legacy fallbacks so a picture with both a modern and a VML copy is counted once.
+  const xml = (await docXml.async("string")).replace(/<mc:Fallback>[\s\S]*?<\/mc:Fallback>/g, "");
+  const seen = new Set(), cache = {}, pictures = [];
+  for (const m of xml.matchAll(/<(?:a:blip|v:imagedata)\b[^>]*?\b(?:r:embed|r:id)="([^"]+)"/g)) {
+    const media = rels[m[1]]; const entry = media && zip.file(media);
+    if (!entry) continue;
+    if (!cache[media]) {
+      const ext = (media.split(".").pop() || "png").toLowerCase();
+      const buf = await entry.async("arraybuffer");
+      const blob = new Blob([buf], { type: MIME[ext] || "application/octet-stream" });
+      cache[media] = { ext, blob, size: buf.byteLength, url: PREVIEWABLE.has(ext) ? URL.createObjectURL(blob) : null };
+    }
+    pictures.push({ id: pictures.length, media, ...cache[media], excluded: false, repeat: seen.has(media), w: 0, h: 0 });
+    seen.add(media);
+  }
+  return pictures;
+}
+function pictureFiltered(im) { return ($("dedupe").checked && im.repeat) || ($("tiny").checked && im.size < 2048); }
+function activePictures() { return state.pictures.filter((im) => !im.excluded && !pictureFiltered(im)); }
+function startAt() { const n = parseInt($("start").value, 10); return Number.isFinite(n) && n >= 0 ? n : 1; }
+function pictureName(i, ext) { return `${prefix()} ${startAt() + i}.${ext === "jpeg" ? "jpg" : ext}`; }
+
+/* ---------- Rendering the page ---------- */
+
+function activeQuestions() { return state.questions.filter((q) => !q.excluded && q.status === "done"); }
+
+function renderSummary() {
+  const el = $("summary");
+  const name = document.createElement("b"); name.textContent = state.docName;
+  if (state.mode === "questions") {
+    const ready = activeQuestions().length;
+    const off = state.questions.filter((q) => q.excluded).length;
+    const empty = state.questions.filter((q) => q.status === "empty").length;
+    const failed = state.questions.filter((q) => q.status === "failed").length;
+    el.textContent = "";
+    if (state.busy) el.append(`Capturing question ${state.progress + 1} of ${state.questions.length} from `, name, "…");
+    else {
+      const b = document.createElement("b"); b.textContent = ready;
+      el.append(b, ` question image${ready === 1 ? "" : "s"} ready from `, name);
+      if (off) el.append(` · ${off} left out`);
+      if (empty) el.append(` · ${empty} empty`);
+      if (failed) el.append(` · ${failed} failed`);
+    }
+    $("zipBtn").disabled = state.busy || ready === 0;
+  } else {
+    const ready = activePictures().length;
+    const off = state.pictures.filter((im) => im.excluded && !pictureFiltered(im)).length;
+    const filtered = state.pictures.filter(pictureFiltered).length;
+    const b = document.createElement("b"); b.textContent = ready;
+    el.textContent = "";
+    el.append(b, ` picture${ready === 1 ? "" : "s"} ready from `, name);
+    if (off) el.append(` · ${off} left out`);
+    if (filtered) el.append(` · ${filtered} skipped by filters`);
+    $("zipBtn").disabled = ready === 0;
+  }
+}
+
+function makeTile({ name, url, sub, subBad, off, onView, onToggle, onDownload, pending, checker, chip, marks, link }) {
+  const tile = document.createElement("article");
+  tile.className = "tile" + (off ? " off" : "");
+  const thumb = document.createElement("button");
+  thumb.type = "button"; thumb.className = "thumb" + (checker ? " checker" : "");
+  if (url) {
+    const img = document.createElement("img"); img.src = url; img.alt = ""; img.loading = "lazy";
+    thumb.append(img); thumb.setAttribute("aria-label", `View ${name}`); thumb.onclick = onView;
+  } else {
+    thumb.disabled = true;
+    if (pending) { const sp = document.createElement("span"); sp.className = "spinner"; thumb.append(sp); }
+    else { const s = document.createElement("span"); s.className = "noprev"; s.textContent = sub; thumb.append(s); }
+  }
+  const meta = document.createElement("div"); meta.className = "meta";
+  const q = document.createElement("div"); q.className = "qname";
+  const dot = name.lastIndexOf(".");
+  const qn = document.createElement("span"); qn.textContent = off ? "Left out" : name.slice(0, dot);
+  const qe = document.createElement("span"); qe.className = "ext"; qe.textContent = name.slice(dot);
+  q.append(qn, qe);
+  const src = document.createElement("div"); src.className = "src" + (subBad ? " bad" : ""); src.textContent = sub;
+  meta.append(q, src);
+  if (marks && !off) {
+    const row = document.createElement("label"); row.className = "marks-row" + (marks.missing ? " missing" : "");
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.min = "0"; inp.max = "100"; inp.step = "1"; inp.value = marks.value; inp.placeholder = "?";
+    inp.setAttribute("aria-label", `Marks for ${name}`);
+    const note = document.createElement("span"); note.className = "marks-note"; note.textContent = marks.note;
+    inp.addEventListener("input", () => marks.onInput(inp.value));
+    // Update just this box (not the whole grid) so Tab to the next box keeps working.
+    inp.addEventListener("change", () => {
+      const s = marks.state();
+      inp.value = s.value; note.textContent = s.note; row.classList.toggle("missing", s.missing);
+    });
+    row.append("Marks", inp, note);
+    meta.append(row);
+  }
+  if (chip) { const c = document.createElement("span"); c.className = "chip " + (chip.kind || ""); c.textContent = chip.text; if (chip.title) c.title = chip.title; meta.append(c); }
+  if (link) { const a = document.createElement("a"); a.className = "cms-link"; a.href = link; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Open in CMS360 ↗"; meta.append(a); }
+  const acts = document.createElement("div"); acts.className = "tile-actions";
+  if (onDownload && !off) { const dl = document.createElement("button"); dl.type = "button"; dl.className = "mini"; dl.textContent = "Download"; dl.onclick = onDownload; acts.append(dl); }
+  if (onToggle) { const t = document.createElement("button"); t.type = "button"; t.className = "mini"; t.textContent = off ? "Include" : "Leave out"; t.onclick = onToggle; acts.append(t); }
+  if (acts.childNodes.length) meta.append(acts);
+  tile.append(thumb, meta);
+  return tile;
+}
+
+function render() {
+  const qMode = state.mode === "questions";
+  $("tabQ").setAttribute("aria-selected", String(qMode));
+  $("tabP").setAttribute("aria-selected", String(!qMode));
+  $("countQ").textContent = state.questions.length;
+  $("countP").textContent = state.pictures.length;
+  document.querySelectorAll(".q-only").forEach((el) => { el.hidden = !qMode; });
+  document.querySelectorAll(".p-only").forEach((el) => { el.hidden = qMode; });
+  $("namePreview").innerHTML = "";
+  const nb = document.createElement("b");
+  if (qMode) { nb.textContent = `${prefix()} 1.png`; $("namePreview").append("Files will be named ", nb, ", using the number in each marker"); }
+  else { nb.textContent = pictureName(0, "png"); $("namePreview").append("Files will be named ", nb); }
+
+  const list = $("warnList"); list.textContent = "";
+  const warns = qMode ? state.warnings : [];
+  warns.forEach((w) => { const li = document.createElement("li"); li.textContent = w; list.append(li); });
+  $("warnings").hidden = !warns.length;
+
+  $("cmsPanel").hidden = !(cms.available && qMode);
+  renderCms();
+
+  const hasItems = qMode ? state.questions.length > 0 : state.pictures.length > 0;
+  $("howto").hidden = !(qMode && !hasItems);
+  $("howtoTitle").textContent = state.docName && qMode ? "No question markers found in this file" : "How to mark your questions";
+  $("results").hidden = !(hasItems || (!qMode && state.docName));
+  if (!$("results").hidden) renderSummary();
+  if (!hasItems) { $("grid").textContent = ""; return; }
+
+  const grid = $("grid"); grid.textContent = "";
+  if (qMode) {
+    for (const q of state.questions) {
+      const name = questionName(q);
+      const sub = q.status === "done" ? `Marker Q${q.n} · ${q.w}×${q.h} px · ${kb(q.blob.size)}`
+        : q.status === "empty" ? "Nothing under this marker"
+        : q.status === "failed" ? "Couldn't capture this question"
+        : "Capturing…";
+      grid.append(makeTile({
+        name, url: q.url, sub, subBad: q.status === "empty" || q.status === "failed", off: q.excluded,
+        pending: q.status === "waiting" || q.status === "rendering",
+        onView: () => openViewer(name, q.url, q.blob),
+        onToggle: q.status === "done" ? () => { q.excluded = !q.excluded; render(); } : null,
+        onDownload: q.status === "done" ? () => saveFile(name, q.blob) : null,
+        chip: cmsChip(q),
+        marks: cms.available && q.status === "done" ? {
+          ...marksState(q),
+          state: () => marksState(q),
+          // Typing only refreshes the upload panel, so the box keeps focus.
+          onInput: (v) => { const n = parseInt(v, 10); q.marksEdited = Number.isFinite(n) && n >= 0 ? n : null; renderCms(); },
+        } : null,
+        link: q.cms && q.cms.state === "uploaded" && q.cms.childId
+          ? `https://cms-360.10minuteschool.com/group-question-details?groupQuestionId=${q.cms.childId}&listPage=1&type=cq` : null,
+      }));
+    }
+  } else {
+    const numbering = new Map(activePictures().map((im, i) => [im.id, i]));
+    for (const im of state.pictures) {
+      if (pictureFiltered(im)) continue;
+      const idx = numbering.get(im.id);
+      const name = im.excluded ? `Left out.${im.ext}` : pictureName(idx, im.ext);
+      grid.append(makeTile({
+        name, url: im.url, checker: true, off: im.excluded,
+        sub: im.url ? `${im.media.split("/").pop()} · ${kb(im.size)}${im.repeat ? " · repeat" : ""}` : `.${im.ext} — no preview`,
+        onView: () => openViewer(name, im.url, im.blob),
+        onToggle: () => { im.excluded = !im.excluded; render(); },
+        onDownload: SAVEABLE.has(im.ext) ? () => saveFile(name, im.blob) : null,
+      }));
+    }
+  }
+}
+
+let viewerItem = null;
+function openViewer(name, url, blob) {
+  viewerItem = { name, blob };
+  $("viewerName").textContent = name; $("viewerImg").src = url;
+  const d = $("viewer");
+  if (d.showModal) d.showModal(); else d.setAttribute("open", "");
+}
+function closeViewer() { const d = $("viewer"); if (d.close) d.close(); else d.removeAttribute("open"); }
+
+/* ---------- CMS360 upload (only when the page is served by server.py on this computer) ---------- */
+
+const cms = { available: false, tokenExp: null, tokenError: "", parent: null, parentError: "", busy: false, confirming: false, msg: "", msgBad: false };
+
+function questionKey(q) { return q.copy > 1 ? `${q.n}-${q.copy}` : String(q.n); }
+function paperBase() { return cleanName(state.docName.replace(/\.docx$/i, "")) || "Question paper"; }
+function parseParentId(s) { const m = /groupQuestionId=(\d+)/.exec(s) || /^\s*(\d+)\s*$/.exec(s); return m ? parseInt(m[1], 10) : null; }
+function childTitle(q) {
+  const tpl = $("childTitle").value.trim() || "{parent} - Q{n}";
+  const n = q.copy > 1 ? `${q.n} (${q.copy})` : String(q.n);
+  return tpl.replace(/\{parent\}/g, (cms.parent && cms.parent.title) || "").replace(/\{n\}/g, n).trim();
+}
+// Marks typed on the tile win, then marks read from the paper; otherwise null until someone types them.
+function marksFor(q) { return q.marksEdited != null ? q.marksEdited : q.marksDetected; }
+function missingMarks() { return uploadList().filter((q) => marksFor(q) == null); }
+function marksState(q) {
+  const v = marksFor(q);
+  return {
+    value: v ?? "", missing: v == null,
+    note: q.marksEdited != null ? "edited" : q.marksDetected != null ? "from the paper" : "not found, enter marks",
+  };
+}
+
+// Ques N goes to order index N. If a number is used twice, fall back to 1, 2, 3… in paper order.
+function orderIndexFor(q) {
+  const qs = activeQuestions();
+  const unique = new Set(qs.map((x) => x.n)).size === qs.length;
+  return unique ? q.n : qs.indexOf(q) + 1;
+}
+// Questions already in this parent are skipped; failed ones are tried again.
+function uploadList() {
+  return activeQuestions().filter((q) => !(q.cms && q.cms.state === "uploaded"));
+}
+function cmsChip(q) {
+  if (!cms.available || !q.cms) return null;
+  const c = q.cms;
+  if (c.state === "queued") return { text: "Waiting to upload" };
+  if (c.state === "uploading") return { text: "Uploading to CMS360…", kind: "busy" };
+  if (c.state === "uploaded") return { text: `In CMS360 · child ${c.childId}${c.questionId ? ` · question ${c.questionId}` : ""}`, kind: "ok" };
+  if (c.state === "failed") return { text: `Upload failed: ${(c.error || "").slice(0, 120)}`, kind: "bad", title: c.error };
+  return null;
+}
+function applyUploadedFromLog() {
+  const rows = (cms.parent && cms.parent.uploaded) || [];
+  for (const q of state.questions) {
+    const hit = rows.filter((r) => r.paper === paperBase() && r.question === questionKey(q)).pop();
+    q.cms = hit ? { state: "uploaded", childId: hit.child_id } : null;
+  }
+}
+
+function renderCms() {
+  if (!cms.available) return;
+  const ti = $("tokenInfo");
+  if (cms.tokenError) { ti.textContent = cms.tokenError; ti.className = "pill bad"; }
+  else if (cms.tokenExp) {
+    const left = cms.tokenExp * 1000 - Date.now();
+    const when = new Date(cms.tokenExp * 1000).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    ti.textContent = left > 0 ? `Token valid until ${when}` : "Token expired. Paste a new one into secrets/.env";
+    ti.className = "pill" + (left > 0 ? "" : " bad");
+  } else { ti.textContent = "Token found"; ti.className = "pill"; }
+
+  const info = $("parentInfo");
+  info.textContent = "";
+  if (cms.parentError) { info.hidden = false; info.className = "parent-info bad"; info.textContent = cms.parentError; }
+  else if (cms.parent) {
+    info.hidden = false; info.className = "parent-info";
+    const b = document.createElement("b"); b.textContent = cms.parent.title || "(no title)";
+    info.append("Parent ", b, ` · ID ${cms.parent.id} · ${cms.parent.children} child question${cms.parent.children === 1 ? "" : "s"} in it now`);
+    const before = (cms.parent.uploaded || []).filter((r) => r.paper === paperBase()).length;
+    if (before) info.append(` · ${before} from this file uploaded here before`);
+  } else info.hidden = true;
+
+  const first = activeQuestions()[0];
+  $("titlePreview").textContent = first && cms.parent
+    ? `Example: Ques ${first.n} becomes child order index ${orderIndexFor(first)}, titled “${childTitle(first)}”. Use {parent} and {n} in the title.`
+    : "Use {parent} for the parent's title and {n} for the question number.";
+  if (cms.parent && cms.parent.max_order > 0 && !cms.busy) {
+    const clash = uploadList().some((q) => orderIndexFor(q) <= cms.parent.max_order);
+    if (clash) $("titlePreview").textContent += ` This parent already has children up to order index ${cms.parent.max_order}, so some order numbers will repeat.`;
+  }
+  const list = uploadList();
+  const missing = missingMarks();
+  const mm = $("marksNeeded");
+  mm.hidden = !missing.length || cms.busy;
+  mm.textContent = missing.length
+    ? `Enter marks for ${missing.slice(0, 8).map((q) => questionName(q).replace(/\.png$/, "")).join(", ")}${missing.length > 8 ? ` and ${missing.length - 8} more` : ""}. Their marks weren't found in the paper. The boxes are marked in red above.`
+    : "";
+  const btn = $("cmsUploadBtn");
+  btn.disabled = cms.busy || state.busy || !cms.parent || !list.length || missing.length > 0;
+  btn.textContent = cms.busy ? "Uploading…" : list.length ? `Upload ${list.length} question${list.length === 1 ? "" : "s"} to CMS360` : "Upload to CMS360";
+  $("confirmBox").hidden = !cms.confirming;
+  const msg = $("cmsMsg"); msg.textContent = cms.msg; msg.className = "cms-msg" + (cms.msgBad ? " bad" : "");
+}
+
+async function checkParent() {
+  const id = parseParentId($("parentInput").value);
+  cms.parent = null; cms.parentError = ""; cms.msg = ""; cms.confirming = false;
+  if (!id) { cms.parentError = "Enter the parent's ID (for example 3791) or paste its group-question-details link."; render(); return; }
+  const btn = $("checkParentBtn"); btn.disabled = true; btn.textContent = "Checking…";
+  try {
+    const r = await fetch(`/api/cms/parent?id=${id}`);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `CMS360 check failed (${r.status})`);
+    cms.parent = j;
+    applyUploadedFromLog();
+  } catch (e) { cms.parentError = e.message; }
+  finally { btn.disabled = false; btn.textContent = "Check parent"; render(); }
+}
+
+async function saveToken() {
+  const input = $("tokenInput"), btn = $("saveTokenBtn");
+  if (!input.value.trim()) { cms.tokenError = "Paste the token first."; render(); return; }
+  btn.disabled = true; btn.textContent = "Checking…";
+  try {
+    const r = await fetch("/api/cms/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: input.value }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `Couldn't save the token (${r.status})`);
+    input.value = "";
+    cms.tokenExp = j.token_expires || null;
+    cms.tokenError = j.works ? "" : (j.error || "CMS360 didn't accept this token.");
+    toast(j.works ? "Token saved. CMS360 accepted it." : "Token saved, but CMS360 rejected it.");
+    if (j.works && parseParentId($("parentInput").value)) checkParent();
+  } catch (e) { cms.tokenError = e.message; }
+  finally { btn.disabled = false; btn.textContent = "Save token"; render(); }
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(",")[1]);
+    fr.onerror = () => reject(new Error("Couldn't read the image."));
+    fr.readAsDataURL(blob);
+  });
+}
+
+async function runUpload() {
+  cms.confirming = false;
+  const list = uploadList();
+  if (!list.length || !cms.parent) { render(); return; }
+  cms.busy = true; cms.msg = "";
+  list.forEach((q) => { q.cms = { state: "queued" }; });
+  render();
+  let ok = 0, failed = 0, stopped = "";
+  for (const q of list) {
+    q.cms = { state: "uploading" }; render();
+    try {
+      const image = await blobToBase64(q.blob);
+      const r = await fetch("/api/cms/upload", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parentId: cms.parent.id, parentTitle: cms.parent.title || "", paper: paperBase(),
+          question: questionKey(q), filename: questionName(q), title: childTitle(q), internalTitle: childTitle(q), orderIndex: orderIndexFor(q),
+          marks: marksFor(q), status: $("childStatus").value, image,
+          innerQuestion: $("innerOn").checked, innerTitle: $("innerTitle").value.trim() || "প্রশ্নগুলোর উত্তর দাও",
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { const err = new Error(j.error || `Upload failed (${r.status})`); err.status = r.status; err.childId = j.child_id; throw err; }
+      q.cms = { state: "uploaded", childId: j.child_id, questionId: j.question_id }; ok++;
+    } catch (e) {
+      // A child that was created but whose inner question failed still exists in CMS360.
+      q.cms = { state: "failed", error: e.message, childId: e.childId }; failed++;
+      // A token or request problem will fail every remaining upload the same way, so stop.
+      if (e.status === 401 || e.status === 400) { stopped = e.message; break; }
+    }
+    render();
+  }
+  list.forEach((q) => { if (q.cms && q.cms.state === "queued") q.cms = null; });
+  cms.busy = false;
+  cms.msg = stopped ? `Stopped: ${stopped}` : `${ok} uploaded to “${cms.parent.title}”${failed ? `, ${failed} failed. Press the button again to retry the failed ones.` : "."}`;
+  cms.msgBad = !!(stopped || failed);
+  try {
+    const r = await fetch(`/api/cms/parent?id=${cms.parent.id}`);
+    if (r.ok) { const j = await r.json(); cms.parent.children = j.children; cms.parent.uploaded = j.uploaded; cms.parent.max_order = j.max_order; }
+  } catch { /* the count refreshes on the next check */ }
+  render();
+}
+
+fetch("/api/cms/status").then((r) => (r.ok ? r.json() : null)).then((j) => {
+  if (!j || !j.ok) return;
+  cms.available = true; cms.tokenExp = j.token_expires || null; cms.tokenError = j.token_error || "";
+  render();
+}).catch(() => { /* opened without server.py: no CMS360 panel */ });
+
+/* ---------- Saving ---------- */
+
+async function saveFile(filename, blob) {
+  const downloads = await downloadsReady;
+  if (downloads) {
+    try { await downloads.save({ filename, data: blob }); toast(`Saved ${filename}`); }
+    catch (e) {
+      if (e && e.code === "declined") toast("Download cancelled");
+      else if (e && e.code === "rate_limited") toast("A download prompt is already open");
+      else if (e && e.code === "rejected_extension") toast("This file type can't be saved on its own. Use Download folder.");
+      else toast("Download isn't available here");
+    }
+    return;
+  }
+  // Outside the Claude viewer (for example on localhost) a normal browser download works.
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  toast(`Saved ${filename}`);
+}
+
+async function downloadZip() {
+  const qMode = state.mode === "questions";
+  const files = qMode
+    ? activeQuestions().map((q) => [questionName(q), q.blob])
+    : activePictures().map((im, i) => [pictureName(i, im.ext), im.blob]);
+  if (!files.length) return;
+  const btn = $("zipBtn"); btn.disabled = true; btn.textContent = "Building folder…";
+  try {
+    const base = cleanName(state.docName.replace(/\.docx$/i, "")) || "Question paper";
+    const folderName = `${base} ${qMode ? "questions" : "pictures"}`;
+    const zip = new JSZip(); const folder = zip.folder(folderName);
+    files.forEach(([name, blob]) => folder.file(name, blob));
+    await saveFile(`${folderName}.zip`, await zip.generateAsync({ type: "blob" }));
+  } finally { btn.textContent = "Download folder (.zip)"; renderSummary(); }
+}
+
+/* ---------- Loading a file ---------- */
+
+async function handleFile(file) {
+  if (!file) return;
+  showError("");
+  renderToken++;
+  for (const q of state.questions) if (q.url) URL.revokeObjectURL(q.url);
+  for (const im of state.pictures) if (im.url) URL.revokeObjectURL(im.url);
+  state = { docName: file.name, mode: state.mode, questions: [], pictures: [], warnings: [], busy: false, progress: 0 };
+  const title = $("dropTitle");
+  title.textContent = "Reading "; const fn = document.createElement("span"); fn.className = "file-name"; fn.textContent = file.name; title.append(fn, "…");
+  render();
+  try {
+    if (/\.doc$/i.test(file.name)) throw new Error("Old .doc files aren't supported. Open it in Word, use Save As → Word Document (.docx), then upload that.");
+    let zip;
+    try { zip = await JSZip.loadAsync(file); }
+    catch { throw new Error("This file couldn't be opened. Make sure it's a .docx file. For an old .doc, open it in Word and use Save As → Word Document (.docx)."); }
+    state.pictures = await readPictures(zip);
+    await layOutDocument(file);
+    const found = findQuestions();
+    state.questions = found.questions; state.warnings = found.warnings;
+    if (cms.parent) applyUploadedFromLog();
+    cms.msg = ""; cms.confirming = false;
+    if (!state.questions.length && state.pictures.length) state.mode = "pictures";
+    else if (state.questions.length) state.mode = "questions";
+    title.textContent = ""; title.append(fn);
+    $("dropSub").textContent = `${state.questions.length} marked question${state.questions.length === 1 ? "" : "s"} and ${state.pictures.length} picture${state.pictures.length === 1 ? "" : "s"} found. Drop another file to replace it.`;
+    if (!state.questions.length && !state.pictures.length) showError("No question markers and no pictures were found. Add a line with just “Q1” above the first question, “Q2” above the second, and so on. Then save and upload again.");
+    render();
+    if (state.questions.length) await captureAll();
+  } catch (e) {
+    console.error(e);
+    showError(e.message || "This file couldn't be read.");
+    title.textContent = "Drop your .docx here, or click to choose";
+    render();
+  }
+}
+
+const drop = $("drop");
+$("file").addEventListener("change", (e) => { handleFile(e.target.files[0]); e.target.value = ""; });
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } });
+["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => handleFile(e.dataTransfer.files[0]));
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => { e.preventDefault(); if (!drop.contains(e.target)) handleFile(e.dataTransfer.files[0]); });
+
+$("tabQ").addEventListener("click", () => { state.mode = "questions"; render(); });
+$("tabP").addEventListener("click", () => { state.mode = "pictures"; render(); });
+["prefix", "start", "dedupe", "tiny"].forEach((id) => $(id).addEventListener("input", render));
+let recaptureTimer;
+["scale", "margin"].forEach((id) => $(id).addEventListener("change", () => {
+  clearTimeout(recaptureTimer);
+  recaptureTimer = setTimeout(() => { if (state.questions.length) captureAll(); }, 250);
+}));
+$("zipBtn").addEventListener("click", downloadZip);
+$("resetBtn").addEventListener("click", () => {
+  (state.mode === "questions" ? state.questions : state.pictures).forEach((it) => { it.excluded = false; });
+  render();
+});
+$("saveTokenBtn").addEventListener("click", saveToken);
+$("tokenInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveToken(); } });
+$("checkParentBtn").addEventListener("click", checkParent);
+$("parentInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); checkParent(); } });
+["childTitle", "childStatus"].forEach((id) => $(id).addEventListener("input", render));
+$("innerOn").addEventListener("change", () => { $("innerRow").hidden = !$("innerOn").checked; });
+$("cmsUploadBtn").addEventListener("click", () => {
+  const list = uploadList(), n = list.length;
+  const total = list.reduce((sum, q) => sum + marksFor(q), 0);
+  $("confirmText").textContent = `This creates ${n} child question${n === 1 ? "" : "s"} (${total} marks in total) under “${cms.parent.title}” (ID ${cms.parent.id}) in CMS360.`;
+  cms.confirming = true; render();
+});
+$("confirmNo").addEventListener("click", () => { cms.confirming = false; render(); });
+$("confirmYes").addEventListener("click", runUpload);
+$("viewerClose").addEventListener("click", closeViewer);
+$("viewer").addEventListener("click", (e) => { if (e.target === $("viewer")) closeViewer(); });
+$("viewerDl").addEventListener("click", () => { if (viewerItem) saveFile(viewerItem.name, viewerItem.blob); });
+render();
+</script>
+<script>
+/* ---------- 10MS UI layer: step tracker, live counters, nav status, progress line, tile entrance ---------- */
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const setStep = (el, st) => { el.classList.toggle("active", st === "active"); el.classList.toggle("done", st === "done"); };
+
+  function countTo(el, n) {
+    const from = Number(el.dataset.n || 0);
+    el.dataset.n = n;
+    if (reduce || from === n) { el.textContent = n; return; }
+    const t0 = performance.now(), dur = 450;
+    const tick = (t) => {
+      const k = Math.min(1, (t - t0) / dur);
+      el.textContent = Math.round(from + (n - from) * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  let shown = { key: "", count: 0 };
+  function ui() {
+    const qs = state.questions, has = !!state.docName;
+    const ready = qs.filter((q) => q.status === "done" && !q.excluded);
+    const marks = ready.reduce((sum, q) => sum + (marksFor(q) || 0), 0);
+    const sent = qs.filter((q) => q.cms && q.cms.state === "uploaded").length;
+    const missing = cms.available ? missingMarks().length : 0;
+    const reviewed = has && qs.length > 0 && !state.busy && missing === 0;
+    const allSent = ready.length > 0 && sent >= ready.length;
+
+    $("stats").hidden = !(has && state.mode === "questions" && qs.length);
+    countTo($("statQ"), qs.length);
+    countTo($("statReady"), ready.length);
+    countTo($("statMarks"), marks);
+    countTo($("statSent"), sent);
+
+    setStep($("step1"), has ? "done" : "active");
+    setStep($("step2"), !has ? "" : reviewed ? "done" : "active");
+    setStep($("step3"), allSent ? "done" : reviewed ? "active" : "");
+    $("step1Sub").textContent = has ? state.docName : "Your .docx with Q1, Q2… markers";
+    $("step2Sub").textContent = !has ? "Check every image and its marks"
+      : state.busy ? `Capturing ${state.progress + 1} of ${qs.length}…`
+      : missing ? `${missing} question${missing === 1 ? " needs" : "s need"} marks`
+      : `${ready.length} image${ready.length === 1 ? "" : "s"} · ${marks} marks`;
+    $("step3Sub").textContent = !cms.available ? "Run server.py to send to CMS360"
+      : allSent ? `All ${sent} in CMS360`
+      : cms.parent ? `Parent: ${cms.parent.title || cms.parent.id}`
+      : "Children with picture + m9 question";
+
+    const ns = $("navStatus"), nt = $("navStatusText");
+    if (!cms.available) { ns.className = "nav-status"; nt.textContent = "Offline"; }
+    else if (cms.tokenError) { ns.className = "nav-status bad"; nt.textContent = "Token rejected"; }
+    else { ns.className = "nav-status ok"; nt.textContent = "CMS360 connected"; }
+
+    let pct = 0;
+    if (state.busy && qs.length) pct = (state.progress / qs.length) * 100;
+    else if (cms.busy) {
+      const inRun = qs.filter((q) => q.cms && ["queued", "uploading", "uploaded", "failed"].includes(q.cms.state));
+      const finished = inRun.filter((q) => q.cms.state === "uploaded" || q.cms.state === "failed").length;
+      pct = inRun.length ? (finished / inRun.length) * 100 : 0;
+    }
+    $("navProgress").style.width = pct ? `${Math.max(4, pct)}%` : "0";
+
+    // Slide in only tiles that weren't on screen before (the grid is rebuilt on every change).
+    const key = `${state.docName}|${state.mode}`;
+    if (shown.key !== key) shown = { key, count: 0 };
+    const tiles = $("grid").children;
+    for (let i = shown.count; i < tiles.length; i++) { tiles[i].classList.add("enter"); tiles[i].style.setProperty("--i", i - shown.count); }
+    shown.count = Math.max(shown.count, tiles.length);
+  }
+
+  const baseRender = render;
+  render = function () { baseRender(); ui(); };
+  const baseRenderCms = renderCms;
+  renderCms = function () { baseRenderCms(); ui(); };
+
+  // Highlight the nav link for the section in view.
+  const links = [...document.querySelectorAll(".nav-links a")];
+  const watch = [["upload", $("drop")], ["send", $("cmsPanel")]];
+  if ("IntersectionObserver" in window) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        const id = watch.find(([, el]) => el === e.target)[0];
+        links.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${id}`));
+      }
+    }, { rootMargin: "-40% 0px -50% 0px" });
+    watch.forEach(([, el]) => io.observe(el));
+  }
+  ui();
+})();
+</script>
+
+</body>
+</html>

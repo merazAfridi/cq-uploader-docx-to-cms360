@@ -1,0 +1,11 @@
+# CMS360 token: never commit
+secrets/.env
+
+# Copies of uploaded images and the upload log, written by server.py
+output/
+
+# Python / OS leftovers
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
