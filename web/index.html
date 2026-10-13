@@ -507,7 +507,7 @@ dialog#viewer::backdrop { background: rgba(0, 0, 0, .72); backdrop-filter: blur(
       </div>
       <button class="btn" id="saveTokenBtn" type="button">Save token</button>
     </div>
-    <p class="hint">To get it: open CMS360 in Chrome, press F12, go to Network, click any request to api.10minuteschool.com, and under Request Headers copy what comes after <code>authorization: Bearer</code>. Chrome replaces its token every 10–30 minutes, so paste a fresh one right before uploading. It's saved only on this computer, in secrets/.env.</p>
+    <p class="hint">To get it: open CMS360 in Chrome, press F12, go to Network, click any request to api.10minuteschool.com, and under Request Headers copy what comes after <code>authorization: Bearer</code>. Chrome replaces its token every 10–30 minutes, so paste a fresh one right before uploading. It stays in this browser tab only, is sent only to CMS360, and is forgotten when you close the tab.</p>
     <div class="cms-row">
       <div class="field grow">
         <label for="parentInput">Parent ID or link</label>
@@ -979,9 +979,124 @@ function openViewer(name, url, blob) {
 }
 function closeViewer() { const d = $("viewer"); if (d.close) d.close(); else d.removeAttribute("open"); }
 
-/* ---------- CMS360 upload (only when the page is served by server.py on this computer) ---------- */
+/* ---------- CMS360 upload: the page talks to CMS360's API directly (it accepts calls from any site) ---------- */
 
-const cms = { available: false, tokenExp: null, tokenError: "", parent: null, parentError: "", busy: false, confirming: false, msg: "", msgBad: false };
+const cms = { available: false, hasToken: false, tokenOkAt: 0, tokenError: "", memToken: "", parent: null, parentError: "", busy: false, confirming: false, msg: "", msgBad: false };
+
+const CMS_API = (window.CMS_API_BASE_OVERRIDE || "https://api.10minuteschool.com").replace(/\/$/, "");
+const CMS_CONTENT = CMS_API + "/content-service/api/v1";
+const CMS_UPLOAD = CMS_API + "/s3-manager/api/v1/files/services/upload";
+// Public client key that CMS360's own website sends with every file upload.
+const TENMS_USER_KEY = "base64:dGVubXM6MTAxMA==";
+const TOKEN_KEY = "cms360-token";
+
+// The token lives in this browser tab only (sessionStorage) and is sent only to CMS360.
+function storedToken() { try { return sessionStorage.getItem(TOKEN_KEY) || cms.memToken; } catch { return cms.memToken; } }
+function storeToken(t) { cms.memToken = t; try { sessionStorage.setItem(TOKEN_KEY, t); } catch { /* private window: keep it in memory */ } }
+function tokenExpiry(t) {
+  try { const p = t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"); return JSON.parse(atob(p + "=".repeat((4 - p.length % 4) % 4))).exp || null; }
+  catch { return null; }
+}
+
+class CmsError extends Error { constructor(message, status) { super(message); this.status = status; } }
+
+async function cmsCall(method, url, { json, form } = {}) {
+  const token = storedToken();
+  if (!token) throw new CmsError("Paste your CMS360 token first.", 401);
+  const exp = tokenExpiry(token);
+  if (exp && exp * 1000 < Date.now()) throw new CmsError("The CMS360 token has expired. Copy a fresh one from Chrome.", 401);
+  const headers = { Authorization: "Bearer " + token, Accept: "application/json" };
+  let body;
+  if (json !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(json); }
+  if (form) { headers["x-tenms-user-key"] = TENMS_USER_KEY; body = form; }
+  let r;
+  try { r = await fetch(url, { method, headers, body }); }
+  catch { throw new CmsError("Couldn't reach CMS360. Check the internet connection and try again.", 0); }
+  const text = await r.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+  if (r.status === 401) throw new CmsError("CMS360 rejected the token (401). Copy a fresh one from Chrome and paste it again.", 401);
+  if (!r.ok) throw new CmsError(`CMS360 answered ${r.status}: ${text.slice(0, 200)}`, r.status);
+  if (data && data.errors) throw new CmsError(`CMS360 refused it: ${JSON.stringify(data.errors).slice(0, 200)}`, 422);
+  return data && typeof data === "object" && "data" in data ? data.data : data;
+}
+
+const tokenWorks = () => cmsCall("GET", `${CMS_CONTENT}/group-questions?page=1&limit=1`);
+const getGroup = (id) => cmsCall("GET", `${CMS_CONTENT}/group-questions/${id}?with_attribute_details=true`);
+async function getChildren(id) {
+  const d = await cmsCall("GET", `${CMS_CONTENT}/group-questions/${id}/map-group-questions?with_attribute_details=true`);
+  return d && Array.isArray(d.questions) ? d.questions : Array.isArray(d) ? d : [];
+}
+async function loadParent(id) {
+  const [group, kids] = await Promise.all([getGroup(id), getChildren(id)]);
+  return {
+    id, title: group && group.title, type: group && group.type, children: kids.length,
+    max_order: kids.reduce((m, c) => Math.max(m, c.order_index || 0), 0), childList: kids,
+  };
+}
+
+// Same multipart upload the CMS360 web app makes; returns the file's CDN link.
+async function uploadFile(blob, filename, bucket = "10ms-content-service", key = "resources") {
+  const form = new FormData();
+  form.append("bucket", bucket); form.append("acl", "public-read"); form.append("key", key);
+  form.append("file", blob, filename.replace(/[^A-Za-z0-9._-]+/g, "_") || "question.png");
+  const d = await cmsCall("POST", CMS_UPLOAD, { form });
+  const url = d && (d.cdn_url || d.file_url);
+  if (!url) throw new CmsError(`The upload of ${filename} gave no link back.`, 502);
+  return url;
+}
+
+// What CMS360's Paragraph box saves when a picture is added with its + button: Editor.js JSON plus its HTML.
+async function paragraphWithImage(imageUrl) {
+  const editor = { time: Date.now(), blocks: [{
+    id: Math.random().toString(36).slice(2, 12), type: "image",
+    data: { file: { url: imageUrl }, caption: "", withBorder: false, stretched: false, withBackground: false },
+  }] };
+  const html = `<figure class="fig-img"><img class="img   " src="${imageUrl}" alt=""><figcaption class="fig-cap"></figcaption></figure>`;
+  const htmlUrl = await uploadFile(new Blob([`<html><body>${html}</body></html>`], { type: "text/html" }), "myfile.html", "tenms-content-service", "html");
+  const jsonUrl = await uploadFile(new Blob([JSON.stringify(editor)], { type: "application/json" }), "editor.json", "tenms-content-service", "json");
+  return { html, attachments: [
+    { identifier: "group_question_paragraph", file_type: "html", file_url: htmlUrl, action: "store" },
+    { identifier: "group_question_paragraph", file_type: "json", file_url: jsonUrl, action: "store" },
+  ] };
+}
+
+async function createChild({ parentId, title, marks, status, imageUrl, orderIndex }) {
+  const { html, attachments } = await paragraphWithImage(imageUrl);
+  const created = await cmsCall("POST", `${CMS_CONTENT}/group-questions`, { json: {
+    title, type: "cq", internal_title: title, options_label: "", questions_label: "",
+    paragraph: html.replace(/"/g, "'"), status, explanation: "", attachments, content_attributes: [], marks,
+  } });
+  // CMS360's own form treats a "code" or "errors" field inside data as a failed save.
+  if (created && (created.code || created.errors)) throw new CmsError(`CMS360 didn't create the child: ${JSON.stringify(created).slice(0, 200)}`, 422);
+  const childId = created && created.id;
+  if (!childId) throw new CmsError("CMS360 didn't return the new child's id.", 502);
+  // Same body as "Add Child Group Question" → "+". Without order_index/min/max/marks the child never shows.
+  const link = await cmsCall("POST", `${CMS_CONTENT}/group-questions/${parentId}/map-group-questions`, { json: {
+    order_index: orderIndex, model_type: "group_question", model_id: childId, min: orderIndex, max: orderIndex, marks,
+  } });
+  if (!link || String(link.model_id) !== String(childId)) {
+    const e = new CmsError(`Child ${childId} was created but CMS360 didn't confirm the link to parent ${parentId}.`, 502);
+    e.childId = childId; throw e;
+  }
+  return childId;
+}
+
+// The m9 question inside a child ("Add Question"). CMS360 links it from group_question_id with order 0;
+// posting the link again updates that same link to order 1, min = max = 1, marks = the child's marks.
+async function createInnerQuestion(childId, title, marks) {
+  const created = await cmsCall("POST", `${CMS_CONTENT}/questions`, { json: {
+    title, marks, status: "active", type: "m9", image: "", video: "", audio: "", explanation: "",
+    content_attributes: [], options: [], group_question_id: childId,
+  } });
+  const qid = created && created.id;
+  if (!qid) throw new CmsError("CMS360 didn't return the new question's id.", 502);
+  const link = await cmsCall("POST", `${CMS_CONTENT}/group-questions/${childId}/map-group-questions`, { json: {
+    order_index: 1, max: 1, min: 1, marks, model_type: "question", model_id: qid,
+  } });
+  if (!link || String(link.model_id) !== String(qid)) throw new CmsError(`Question ${qid} was created but CMS360 didn't confirm it under child ${childId}.`, 502);
+  return qid;
+}
 
 function questionKey(q) { return q.copy > 1 ? `${q.n}-${q.copy}` : String(q.n); }
 function paperBase() { return cleanName(state.docName.replace(/\.docx$/i, "")) || "Question paper"; }
@@ -1021,11 +1136,12 @@ function cmsChip(q) {
   if (c.state === "failed") return { text: `Upload failed: ${(c.error || "").slice(0, 120)}`, kind: "bad", title: c.error };
   return null;
 }
-function applyUploadedFromLog() {
-  const rows = (cms.parent && cms.parent.uploaded) || [];
+// A question counts as already uploaded when the parent has a child with the title it would get.
+function applyUploadedFromParent() {
+  const byTitle = new Map(((cms.parent && cms.parent.childList) || []).map((c) => [String(c.title || "").trim(), c.model_id]));
   for (const q of state.questions) {
-    const hit = rows.filter((r) => r.paper === paperBase() && r.question === questionKey(q)).pop();
-    q.cms = hit ? { state: "uploaded", childId: hit.child_id } : null;
+    const id = byTitle.get(childTitle(q));
+    q.cms = id ? { state: "uploaded", childId: id } : null;
   }
 }
 
@@ -1033,12 +1149,11 @@ function renderCms() {
   if (!cms.available) return;
   const ti = $("tokenInfo");
   if (cms.tokenError) { ti.textContent = cms.tokenError; ti.className = "pill bad"; }
-  else if (cms.tokenExp) {
-    const left = cms.tokenExp * 1000 - Date.now();
-    const when = new Date(cms.tokenExp * 1000).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-    ti.textContent = left > 0 ? `Token valid until ${when}` : "Token expired. Paste a new one into secrets/.env";
-    ti.className = "pill" + (left > 0 ? "" : " bad");
-  } else { ti.textContent = "Token found"; ti.className = "pill"; }
+  else if (!cms.hasToken) { ti.textContent = "No token yet"; ti.className = "pill neutral"; }
+  else if (cms.tokenOkAt) {
+    ti.textContent = `Token accepted at ${new Date(cms.tokenOkAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+    ti.className = "pill";
+  } else { ti.textContent = "Checking token…"; ti.className = "pill neutral"; }
 
   const info = $("parentInfo");
   info.textContent = "";
@@ -1047,8 +1162,8 @@ function renderCms() {
     info.hidden = false; info.className = "parent-info";
     const b = document.createElement("b"); b.textContent = cms.parent.title || "(no title)";
     info.append("Parent ", b, ` · ID ${cms.parent.id} · ${cms.parent.children} child question${cms.parent.children === 1 ? "" : "s"} in it now`);
-    const before = (cms.parent.uploaded || []).filter((r) => r.paper === paperBase()).length;
-    if (before) info.append(` · ${before} from this file uploaded here before`);
+    const already = state.questions.filter((q) => q.cms && q.cms.state === "uploaded").length;
+    if (already) info.append(` · ${already} of this file's questions already in it`);
   } else info.hidden = true;
 
   const first = activeQuestions()[0];
@@ -1073,45 +1188,38 @@ function renderCms() {
   const msg = $("cmsMsg"); msg.textContent = cms.msg; msg.className = "cms-msg" + (cms.msgBad ? " bad" : "");
 }
 
+function noteTokenError(e) { if (e && e.status === 401) { cms.tokenError = e.message; cms.tokenOkAt = 0; } }
+
 async function checkParent() {
   const id = parseParentId($("parentInput").value);
   cms.parent = null; cms.parentError = ""; cms.msg = ""; cms.confirming = false;
   if (!id) { cms.parentError = "Enter the parent's ID (for example 3791) or paste its group-question-details link."; render(); return; }
   const btn = $("checkParentBtn"); btn.disabled = true; btn.textContent = "Checking…";
   try {
-    const r = await fetch(`/api/cms/parent?id=${id}`);
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || `CMS360 check failed (${r.status})`);
-    cms.parent = j;
-    applyUploadedFromLog();
-  } catch (e) { cms.parentError = e.message; }
+    cms.parent = await loadParent(id);
+    cms.tokenError = ""; cms.tokenOkAt = Date.now();
+    applyUploadedFromParent();
+  } catch (e) { noteTokenError(e); cms.parentError = e.message; }
   finally { btn.disabled = false; btn.textContent = "Check parent"; render(); }
 }
 
 async function saveToken() {
   const input = $("tokenInput"), btn = $("saveTokenBtn");
-  if (!input.value.trim()) { cms.tokenError = "Paste the token first."; render(); return; }
+  const t = input.value.trim().replace(/^bearer\s+/i, "");
+  if (!t) { cms.tokenError = "Paste the token first."; render(); return; }
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t)) {
+    cms.tokenError = "That doesn't look like a CMS360 token. Copy everything after “Bearer ”."; render(); return;
+  }
   btn.disabled = true; btn.textContent = "Checking…";
+  storeToken(t); input.value = ""; cms.hasToken = true; cms.tokenOkAt = 0; cms.tokenError = "";
+  render();
   try {
-    const r = await fetch("/api/cms/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: input.value }) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || `Couldn't save the token (${r.status})`);
-    input.value = "";
-    cms.tokenExp = j.token_expires || null;
-    cms.tokenError = j.works ? "" : (j.error || "CMS360 didn't accept this token.");
-    toast(j.works ? "Token saved. CMS360 accepted it." : "Token saved, but CMS360 rejected it.");
-    if (j.works && parseParentId($("parentInput").value)) checkParent();
-  } catch (e) { cms.tokenError = e.message; }
+    await tokenWorks();
+    cms.tokenOkAt = Date.now();
+    toast("Token saved. CMS360 accepted it.");
+    if (parseParentId($("parentInput").value)) checkParent();
+  } catch (e) { cms.tokenError = e.message; toast("CMS360 didn't accept this token."); }
   finally { btn.disabled = false; btn.textContent = "Save token"; render(); }
-}
-
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result).split(",")[1]);
-    fr.onerror = () => reject(new Error("Couldn't read the image."));
-    fr.readAsDataURL(blob);
-  });
 }
 
 async function runUpload() {
@@ -1121,47 +1229,50 @@ async function runUpload() {
   cms.busy = true; cms.msg = "";
   list.forEach((q) => { q.cms = { state: "queued" }; });
   render();
+  const status = $("childStatus").value === "inactive" ? "inactive" : "active";
+  const innerOn = $("innerOn").checked, innerTitle = $("innerTitle").value.trim() || "প্রশ্নগুলোর উত্তর দাও";
   let ok = 0, failed = 0, stopped = "";
   for (const q of list) {
     q.cms = { state: "uploading" }; render();
+    let childId = null;
     try {
-      const image = await blobToBase64(q.blob);
-      const r = await fetch("/api/cms/upload", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          parentId: cms.parent.id, parentTitle: cms.parent.title || "", paper: paperBase(),
-          question: questionKey(q), filename: questionName(q), title: childTitle(q), internalTitle: childTitle(q), orderIndex: orderIndexFor(q),
-          marks: marksFor(q), status: $("childStatus").value, image,
-          innerQuestion: $("innerOn").checked, innerTitle: $("innerTitle").value.trim() || "প্রশ্নগুলোর উত্তর দাও",
-        }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) { const err = new Error(j.error || `Upload failed (${r.status})`); err.status = r.status; err.childId = j.child_id; throw err; }
-      q.cms = { state: "uploaded", childId: j.child_id, questionId: j.question_id }; ok++;
+      const marks = marksFor(q);
+      const imageUrl = await uploadFile(q.blob, questionName(q));
+      childId = await createChild({ parentId: cms.parent.id, title: childTitle(q), marks, status, imageUrl, orderIndex: orderIndexFor(q) });
+      let questionId = null;
+      if (innerOn) {
+        try { questionId = await createInnerQuestion(childId, innerTitle, marks); }
+        catch (e) { e.message = `Child ${childId} was created, but its question wasn't: ${e.message}`; throw e; }
+      }
+      q.cms = { state: "uploaded", childId, questionId }; ok++;
     } catch (e) {
       // A child that was created but whose inner question failed still exists in CMS360.
-      q.cms = { state: "failed", error: e.message, childId: e.childId }; failed++;
-      // A token or request problem will fail every remaining upload the same way, so stop.
-      if (e.status === 401 || e.status === 400) { stopped = e.message; break; }
+      q.cms = { state: "failed", error: e.message, childId: e.childId || childId }; failed++;
+      noteTokenError(e);
+      // A token or connection problem will fail every remaining upload the same way, so stop.
+      if (e.status === 401 || e.status === 0) { stopped = e.message; break; }
     }
     render();
   }
   list.forEach((q) => { if (q.cms && q.cms.state === "queued") q.cms = null; });
   cms.busy = false;
+  if (!stopped) cms.tokenOkAt = Date.now();
   cms.msg = stopped ? `Stopped: ${stopped}` : `${ok} uploaded to “${cms.parent.title}”${failed ? `, ${failed} failed. Press the button again to retry the failed ones.` : "."}`;
   cms.msgBad = !!(stopped || failed);
   try {
-    const r = await fetch(`/api/cms/parent?id=${cms.parent.id}`);
-    if (r.ok) { const j = await r.json(); cms.parent.children = j.children; cms.parent.uploaded = j.uploaded; cms.parent.max_order = j.max_order; }
+    const fresh = await loadParent(cms.parent.id);
+    Object.assign(cms.parent, { children: fresh.children, max_order: fresh.max_order, childList: fresh.childList });
   } catch { /* the count refreshes on the next check */ }
   render();
 }
 
-fetch("/api/cms/status").then((r) => (r.ok ? r.json() : null)).then((j) => {
-  if (!j || !j.ok) return;
-  cms.available = true; cms.tokenExp = j.token_expires || null; cms.tokenError = j.token_error || "";
-  render();
-}).catch(() => { /* opened without server.py: no CMS360 panel */ });
+// Inside the Claude preview, calls to other sites are blocked, so the CMS360 panel stays hidden there.
+cms.available = !(window.claude && window.claude.use);
+if (cms.available && storedToken()) {
+  cms.hasToken = true;
+  tokenWorks().then(() => { cms.tokenOkAt = Date.now(); cms.tokenError = ""; render(); })
+    .catch((e) => { cms.tokenError = e.message; render(); });
+}
 
 /* ---------- Saving ---------- */
 
@@ -1221,7 +1332,7 @@ async function handleFile(file) {
     await layOutDocument(file);
     const found = findQuestions();
     state.questions = found.questions; state.warnings = found.warnings;
-    if (cms.parent) applyUploadedFromLog();
+    if (cms.parent) applyUploadedFromParent();
     cms.msg = ""; cms.confirming = false;
     if (!state.questions.length && state.pictures.length) state.mode = "pictures";
     else if (state.questions.length) state.mode = "questions";
@@ -1322,7 +1433,7 @@ render();
       : state.busy ? `Capturing ${state.progress + 1} of ${qs.length}…`
       : missing ? `${missing} question${missing === 1 ? " needs" : "s need"} marks`
       : `${ready.length} image${ready.length === 1 ? "" : "s"} · ${marks} marks`;
-    $("step3Sub").textContent = !cms.available ? "Run server.py to send to CMS360"
+    $("step3Sub").textContent = !cms.available ? "Open the page in a browser to send"
       : allSent ? `All ${sent} in CMS360`
       : cms.parent ? `Parent: ${cms.parent.title || cms.parent.id}`
       : "Children with picture + m9 question";
@@ -1330,6 +1441,7 @@ render();
     const ns = $("navStatus"), nt = $("navStatusText");
     if (!cms.available) { ns.className = "nav-status"; nt.textContent = "Offline"; }
     else if (cms.tokenError) { ns.className = "nav-status bad"; nt.textContent = "Token rejected"; }
+    else if (!cms.hasToken) { ns.className = "nav-status"; nt.textContent = "No token yet"; }
     else { ns.className = "nav-status ok"; nt.textContent = "CMS360 connected"; }
 
     let pct = 0;
